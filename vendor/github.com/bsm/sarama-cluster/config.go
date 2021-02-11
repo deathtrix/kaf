@@ -136,11 +136,11 @@ func (c *Config) Validate() error {
 	}
 
 	// ensure offset is correct
-	switch c.Consumer.Offsets.Initial {
-	case sarama.OffsetOldest, sarama.OffsetNewest:
-	default:
-		return sarama.ConfigurationError("Consumer.Offsets.Initial must be either OffsetOldest or OffsetNewest")
-	}
+	// switch c.Consumer.Offsets.Initial {
+	// case sarama.OffsetOldest, sarama.OffsetNewest:
+	// default:
+	// 	return sarama.ConfigurationError("Consumer.Offsets.Initial must be either OffsetOldest or OffsetNewest")
+	// }
 
 	return nil
 }

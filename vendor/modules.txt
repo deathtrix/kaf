@@ -168,7 +168,7 @@ github.com/segmentio/kafka-go/protocol/produce
 github.com/segmentio/kafka-go/protocol/saslauthenticate
 github.com/segmentio/kafka-go/protocol/saslhandshake
 github.com/segmentio/kafka-go/sasl
-# github.com/spf13/cobra v1.1.1
+# github.com/spf13/cobra v1.1.2-0.20201229145732-a4ab3fa09e3d
 github.com/spf13/cobra
 # github.com/spf13/pflag v1.0.5
 github.com/spf13/pflag

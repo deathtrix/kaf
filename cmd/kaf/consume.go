@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"text/tabwriter"
 	"time"
@@ -40,7 +41,7 @@ var (
 
 func init() {
 	rootCmd.AddCommand(consumeCmd)
-	consumeCmd.Flags().StringVar(&offsetFlag, "offset", "oldest", "Offset to start consuming. Possible values: oldest, newest.")
+	consumeCmd.Flags().StringVar(&offsetFlag, "offset", "newest", "Offset to start consuming. Possible values: oldest, newest.")
 	consumeCmd.Flags().BoolVar(&raw, "raw", false, "Print raw output of messages, without key or prettified JSON")
 	consumeCmd.Flags().BoolVarP(&follow, "follow", "f", false, "Shorthand to start consuming with offset HEAD-1 on each partition. Overrides --offset flag")
 	consumeCmd.Flags().StringSliceVar(&protoFiles, "proto-include", []string{}, "Path to proto files")
@@ -89,28 +90,44 @@ var consumeCmd = &cobra.Command{
 	ValidArgsFunction: validTopicArgs,
 	PreRun:            setupProtoDescriptorRegistry,
 	Run: func(cmd *cobra.Command, args []string) {
-		var offset int64
+		var offsetStart, offsetEnd int64
+
 		switch offsetFlag {
 		case "oldest":
-			offset = sarama.OffsetOldest
+			offsetStart = sarama.OffsetOldest
 		case "newest":
-			offset = sarama.OffsetNewest
+			offsetStart = sarama.OffsetNewest
+			offsetEnd = sarama.OffsetNewest
 		default:
 			// TODO: normally we would parse this to int64 but it's
 			// difficult as we can have multiple partitions. need to
 			// find a way to give offsets from CLI with a good
 			// syntax.
-			offset = sarama.OffsetNewest
+
+			rez := strings.Split(offsetFlag, ":")
+			o1, err := strconv.ParseInt(rez[0], 10, 64)
+			if err == nil {
+				offsetStart = o1
+			} else {
+				offsetStart = sarama.OffsetNewest
+			}
+			o2, err := strconv.ParseInt(rez[1], 10, 64)
+			if err == nil {
+				offsetEnd = o2
+			} else {
+				offsetEnd = sarama.OffsetNewest
+			}
+
 		}
 		cfg := getConfig()
-		cfg.Consumer.Offsets.Initial = offset
+		cfg.Consumer.Offsets.Initial = offsetStart
 		topic := args[0]
 		client := getClientFromConfig(cfg)
 
 		if groupFlag != "" {
 			withConsumerGroup(cmd.Context(), client, topic, groupFlag)
 		} else {
-			withoutConsumerGroup(cmd.Context(), client, topic, offset)
+			withoutConsumerGroup(cmd.Context(), client, topic, offsetStart, offsetEnd)
 		}
 
 	},
@@ -150,7 +167,7 @@ func withConsumerGroup(ctx context.Context, client sarama.Client, topic, group s
 	}
 }
 
-func withoutConsumerGroup(ctx context.Context, client sarama.Client, topic string, offset int64) {
+func withoutConsumerGroup(ctx context.Context, client sarama.Client, topic string, offsetStart int64, offsetEnd int64) {
 	consumer, err := sarama.NewConsumerFromClient(client)
 	if err != nil {
 		errorExit("Unable to create consumer from client: %v\n", err)
@@ -208,12 +225,15 @@ func withoutConsumerGroup(ctx context.Context, client sarama.Client, topic strin
 					return
 				case msg := <-pc.Messages():
 					handleMessage(msg, &mu)
-					if limitMessagesFlag > 0 && msg.Offset >= offset+limitMessagesFlag {
+					if limitMessagesFlag == 0 {
+						limitMessagesFlag = offsetEnd - offsetStart
+					}
+					if msg.Offset >= offset+limitMessagesFlag {
 						return
 					}
 				}
 			}
-		}(partition, offset)
+		}(partition, offsetStart)
 	}
 	wg.Wait()
 }
