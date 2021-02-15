@@ -41,7 +41,7 @@ var (
 
 func init() {
 	rootCmd.AddCommand(consumeCmd)
-	consumeCmd.Flags().StringVar(&offsetFlag, "offset", "newest", "Offset to start consuming. Possible values: oldest, newest.")
+	consumeCmd.Flags().StringVar(&offsetFlag, "offset", "oldest", "Offset to start consuming. Possible values: oldest, newest.")
 	consumeCmd.Flags().BoolVar(&raw, "raw", false, "Print raw output of messages, without key or prettified JSON")
 	consumeCmd.Flags().BoolVarP(&follow, "follow", "f", false, "Shorthand to start consuming with offset HEAD-1 on each partition. Overrides --offset flag")
 	consumeCmd.Flags().StringSliceVar(&protoFiles, "proto-include", []string{}, "Path to proto files")
@@ -95,6 +95,7 @@ var consumeCmd = &cobra.Command{
 		switch offsetFlag {
 		case "oldest":
 			offsetStart = sarama.OffsetOldest
+			offsetEnd = sarama.OffsetNewest
 		case "newest":
 			offsetStart = sarama.OffsetNewest
 			offsetEnd = sarama.OffsetNewest
@@ -103,21 +104,34 @@ var consumeCmd = &cobra.Command{
 			// difficult as we can have multiple partitions. need to
 			// find a way to give offsets from CLI with a good
 			// syntax.
-
 			rez := strings.Split(offsetFlag, ":")
-			o1, err := strconv.ParseInt(rez[0], 10, 64)
-			if err == nil {
-				offsetStart = o1
-			} else {
-				offsetStart = sarama.OffsetNewest
-			}
-			o2, err := strconv.ParseInt(rez[1], 10, 64)
-			if err == nil {
-				offsetEnd = o2
-			} else {
+			switch len(rez) {
+			case 2:
+				o1, err := strconv.ParseInt(rez[0], 10, 64)
+				if err == nil {
+					offsetStart = o1
+				} else {
+					offsetStart = sarama.OffsetNewest
+				}
+				o2, err := strconv.ParseInt(rez[1], 10, 64)
+				if err == nil {
+					offsetEnd = o2
+				} else {
+					offsetEnd = sarama.OffsetNewest
+				}
+			default:
+				o1, err := strconv.ParseInt(rez[0], 10, 64)
+				if err == nil {
+					offsetStart = o1
+				} else {
+					offsetStart = sarama.OffsetNewest
+				}
 				offsetEnd = sarama.OffsetNewest
 			}
 
+			if offsetEnd < 0 {
+				offsetEnd = sarama.OffsetNewest
+			}
 		}
 		cfg := getConfig()
 		cfg.Consumer.Offsets.Initial = offsetStart
@@ -129,7 +143,6 @@ var consumeCmd = &cobra.Command{
 		} else {
 			withoutConsumerGroup(cmd.Context(), client, topic, offsetStart, offsetEnd)
 		}
-
 	},
 }
 
@@ -206,10 +219,13 @@ func withoutConsumerGroup(ctx context.Context, client sarama.Client, topic strin
 				errorExit("Unable to get available offsets: %v\n", err)
 			}
 			followOffset := offsets.GetBlock(topic, partition).Offset - 1
-
 			if follow && followOffset > 0 {
 				offset = followOffset
 				fmt.Fprintf(errWriter, "Starting on partition %v with offset %v\n", partition, offset)
+			}
+
+			if offset < sarama.OffsetOldest {
+				offset += followOffset + 1
 			}
 
 			pc, err := consumer.ConsumePartition(topic, partition, offset)
